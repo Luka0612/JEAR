@@ -15,7 +15,7 @@ Trees](https://www.aclweb.org/anthology/P/P17/P17-1085.pdf)采用了两个loss�
 </br>
 [Global Normalization of Convolutional Neural Networks for Joint Entity and Relation Classification](https://arxiv.org/pdf/1707.07719.pdf)
 作者对文本进行CNN获得全局信息后分别对相应部分输出实体类型以及关系类型，然后进行CRF计算预测序列的概率。但感觉也存在几点缺陷：
-1）每次需要单独输入实体，这就需要先进行实体提取，而且每对实体都进行关系识别，对模型计算也比较大；2）CRF特征提取液需要进行训练
+1）需要对句子中的每次query entity pairs进行模型推理，对模型计算比较大；2）CRF特征提取液需要进行训练
 作者有提供了[源代码](http://cistern.cis.lmu.de)。
 
 
