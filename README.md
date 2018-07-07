@@ -9,16 +9,22 @@ Trees](https://www.aclweb.org/anthology/P/P17/P17-1085.pdf)采用了两个loss�
 在关系类型识别中，作者采用了pointer networks预测目前的token与前面所有token的关系类型，将与前面token的概率向量拓展到R维
 表示R个关系类型。但感觉存在缺陷，在拓展到多关系类型时候，作者采用了阈值控制输出所有大于阈值的relation，感觉不太舒服
 </br>
+</br>
 [Joint Extraction of Entities and Relations Based on a Novel Tagging Scheme](https://arxiv.org/pdf/1706.05075.pdf)
 作者提出了一种tagging scheme用于实体类型&关系提取，每个token识别为tag（实体中的单词位置，关系类型和关系角色），如S-CP-2表示单个实体，
 在关系CP中的第二个位置，然后就转化为序列标注任务即可。但存在几个问题：1）没有识别实体类型；2）tag总是很大2\*4*R+1
+</br>
 </br>
 [Global Normalization of Convolutional Neural Networks for Joint Entity and Relation Classification](https://arxiv.org/pdf/1707.07719.pdf)
 作者对文本进行CNN获得全局信息后分别对相应部分输出实体类型以及关系类型，然后进行CRF计算预测序列的概率。但感觉也存在几点缺陷：
 1）需要对句子中的每次query entity pairs进行模型推理，对模型计算比较大；2）CRF特征提取液需要进行训练
 作者有提供了[源代码](http://cistern.cis.lmu.de)。
-
-
+</br>
+</br>
 经过整理，决定实现Going out on a limb: Joint Extraction of Entity Mentions and Relations without Dependency 
 Trees，对Global Normalization of Convolutional Neural Networks for Joint Entity and Relation Classification感兴趣的可以去看下作者提供的
 [源代码](http://cistern.cis.lmu.de)
+
+## 数据集搭建
+由于ace05数据集需要购买而且还蛮贵的，所以采用“entity and relation recognition”
+(ERR) dataset from [Global Normalization of Convolutional Neural Networks for Joint Entity and Relation Classification](http://cistern.cis.lmu.de)

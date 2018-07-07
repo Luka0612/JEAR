@@ -1,0 +1,3 @@
+datafile : "../../data/corpus_prepared.pickled"
+wordvectors: "../../data/vecs.lc.over100freq.txt.gz"
+contextsize: 120
