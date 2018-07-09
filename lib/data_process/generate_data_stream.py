@@ -1,9 +1,10 @@
 # coding: utf-8
-import numpy as np
 import os
-import sys
-import yaml
 import pickle
+import sys
+
+import numpy as np
+import yaml
 
 current_relative_path = lambda x: os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), x))
 sys.path.append(current_relative_path(".."))
@@ -49,7 +50,7 @@ def split_context(curId, id2ner, id2arg2rel):
         i = j
 
     d_entities_rels_index = {}
-    for e1Ind in range(len(entities)-1, -1, -1):
+    for e1Ind in range(len(entities) - 1, -1, -1):
         entities_rels = []
         ent1 = entities[e1Ind]
         for e2Ind in range(e1Ind - 1, -1, -1):
@@ -79,7 +80,7 @@ def process_samples(id2sent, id2ner, id2arg2rel, wordindices, conf):
             matrix[:len(cur_ners_index)] = np.array(cur_ners_index)
             cur_ners_index = matrix
 
-        one_data = np.array([context_index, cur_ners_index])
+        one_data = (context_index, cur_ners_index)
         all_data.append(one_data)
     return all_data
 
@@ -88,13 +89,27 @@ def data_process(conf):
     data_file = conf["datafile"]
     train_data, test_data = process_data_file(data_file)
     word_vectors_file = conf["wordvectors"]
-    wordindices = readIndices(word_vectors_file, isWord2vec = True)
-    process_samples(train_data[0], train_data[3], train_data[4], wordindices, conf)
+    wordindices = readIndices(word_vectors_file, isWord2vec=True)
+    return process_samples(train_data[0], train_data[3], train_data[4], wordindices, conf)
+
+
+def generate_batch(Tconf):
+    conf = {}
+    conf["datafile"] = Tconf.datafile
+    conf["wordvectors"] = Tconf.wordvectors
+    conf["contextsize"] = Tconf.contextsize
+    all_data = data_process(conf)
+    all_data = all_data[
+               int(len(all_data) * Tconf.start_split_data_index): int(len(all_data) * Tconf.end_split_data_index)]
+    for i in range(int(len(all_data) / Tconf.batch_size)):
+        yield all_data[i: i + Tconf.batch_size]
+    yield None
 
 
 def main():
     conf = load_yaml(current_relative_path("../../conf/config.yaml"))
     data_process(conf)
+
 
 if __name__ == '__main__':
     main()

@@ -11,7 +11,7 @@ def getRelID(relName):
 
 
 def getEntityID(entityName):
-    nerSet = ['O', 'L-Org', 'U-Loc', 'U-Peop', 'U-Org', 'B-Org', 'B-Other', 'I-Org', 'B-Peop', 'I-Loc', 'I-Peop',
+    nerSet = ['<pad>', 'O', 'L-Org', 'U-Loc', 'U-Peop', 'U-Org', 'B-Org', 'B-Other', 'I-Org', 'B-Peop', 'I-Loc', 'I-Peop',
               'I-Other', 'L-Loc', 'U-Other', 'L-Other', 'B-Loc', 'L-Peop']
     return nerSet.index(entityName)
 
