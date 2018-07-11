@@ -7,8 +7,8 @@ import sys
 import tensorflow as tf
 
 current_relative_path = lambda x: os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), x))
-sys.path.append(os.path.abspath("../utils"))
-from utils import generate_batch
+sys.path.append(os.path.abspath(".."))
+from data_process.generate_data_stream import generate_batch
 
 # 指定GPU
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -21,7 +21,8 @@ tf_config.gpu_options.per_process_gpu_memory_fraction = 0.95
 class Model():
     def __init__(self, is_training, config):
         self.train_inputs = tf.placeholder(tf.int32, shape=[None, config.num_steps])
-        self.train_entity_labels = tf.placeholder(tf.float32, shape=[None, config.num_steps, config.entity_class_num])
+        self.train_entity_labels = tf.placeholder(tf.int32, shape=[None, config.num_steps, config.entity_class_num])
+        self.train_entity_labels_index = tf.placeholder(tf.int32, shape=[None, config.num_steps])
 
         if is_training:
             # 词向量
@@ -81,43 +82,42 @@ class Model():
                     decoder_embedding = tf.get_variable(
                         "target_embedding", [config.entity_class_num, config.decode_embedding_dim])
 
-            target_input_embeddeds = tf.nn.embedding_lookup(decoder_embedding, self.train_entity_labels)
+            target_input_embeddeds = tf.nn.embedding_lookup(decoder_embedding, self.train_entity_labels_index)
 
-        if False:
-            with tf.variable_scope('decode'):
-                decoder_cell = tf.nn.rnn_cell.MultiRNNCell(
-                    [self.get_a_cell(config.decode_hidden_size, is_training, config.keep_prob) for _ in
-                     range(config.decode_num_layers)])
-                decoder_cell_initial_state = decoder_cell.zero_state(batch_size, dtype=tf.float32)
-                outputs = list()
-                state = decoder_cell_initial_state
-                # 全连接层
-                softmax_w = tf.get_variable(
-                    "softmax_w", [config.decode_hidden_size, config.entity_class_num], dtype=tf.float32)
-                softmax_bias = tf.get_variable("softmax_b", [config.entity_class_num], dtype=tf.float32)
-                with tf.variable_scope('RNN'):
-                    for timestep in range(length):
-                        if timestep > 0:
-                            tf.get_variable_scope().reuse_variables()
-                            if is_training:
-                                decode_input = tf.concat(2, [encoder_outputs[:, timestep, :],
-                                                             target_input_embeddeds[:, timestep, :]])
-                            else:
-                                last_label = tf.argmax(tf.matmul(outputs[-1], softmax_w) + softmax_bias, 1)
-                                last_label_embeddeds = tf.nn.embedding_lookup(decoder_embedding, last_label)
-                                decode_input = tf.concat(2, [encoder_outputs[:, timestep, :],
-                                                             last_label_embeddeds])
-                            (cell_output, state) = decoder_cell(decode_input, state)
-                            outputs.append(cell_output)
-                output = tf.reshape(tf.concat(1, outputs), [-1, config.decode_hidden_size])
-                logits = tf.matmul(output, softmax_w) + softmax_bias
+        with tf.variable_scope('decode'):
+            decoder_cell = tf.nn.rnn_cell.MultiRNNCell(
+                [self.get_a_cell(config.decode_hidden_size, is_training, config.keep_prob) for _ in
+                 range(config.decode_num_layers)])
+            decoder_cell_initial_state = decoder_cell.zero_state(batch_size, dtype=tf.float32)
+            outputs = list()
+            state = decoder_cell_initial_state
+            # 全连接层
+            softmax_w = tf.get_variable(
+                "softmax_w", [config.decode_hidden_size, config.entity_class_num], dtype=tf.float32)
+            softmax_bias = tf.get_variable("softmax_b", [config.entity_class_num], dtype=tf.float32)
+            with tf.variable_scope('RNN'):
+                for timestep in range(config.num_steps):
+                    if timestep > 0:
+                        tf.get_variable_scope().reuse_variables()
+                    if is_training:
+                        decode_input = tf.concat([encoder_outputs[:, timestep, :],
+                                                  target_input_embeddeds[:, timestep, :]], 1)
+                    else:
+                        if timestep == 0:
+                            last_label_embeddeds = tf.nn.embedding_lookup(decoder_embedding, [0] * batch_size)
+                        else:
+                            last_label = tf.argmax(tf.matmul(outputs[-1], softmax_w) + softmax_bias, 1)
+                            last_label_embeddeds = tf.nn.embedding_lookup(decoder_embedding, last_label)
+                        decode_input = tf.concat([encoder_outputs[:, timestep, :],
+                                                  last_label_embeddeds], 1)
+                    (cell_output, state) = decoder_cell(decode_input, state)
+                    outputs.append(cell_output)
+            output = tf.reshape(tf.concat(outputs, 1), [-1, config.decode_hidden_size])
+            logits = tf.reshape(tf.matmul(output, softmax_w) + softmax_bias, [batch_size, config.num_steps, config.entity_class_num])
 
-                # loss , shape=[batch*num_steps]
-                # 带权重的交叉熵计算
-                loss = tf.nn.seq2seq.sequence_loss_by_example(
-                    [logits],  # output [batch*numsteps, vocab_size]
-                    [tf.reshape(self.train_entity_labels, [-1])],  # target, [batch_size, num_steps] 然后展开成一维【列表】
-                    [tf.ones([batch_size * length], dtype=tf.float32)])  # weight
+            masks = tf.sequence_mask(length, config.num_steps, dtype=tf.float32, name="masks")
+            self.cost = tf.contrib.seq2seq.sequence_loss(logits, self.train_entity_labels_index, masks)
+            self.t = self.cost
 
         self._lr = tf.Variable(1.0, trainable=False)
         self._new_lr = tf.placeholder(
@@ -166,7 +166,7 @@ def model_save(sess, path, model_name, global_step):
 
 class TrainConfig(object):
     # 词向量维度
-    num_steps = 128
+    num_steps = 120
     # batch的大小
     batch_size = 8
     entity_class_num = 18
@@ -186,14 +186,14 @@ class TrainConfig(object):
     max_epoch = 5
     datafile = current_relative_path("../../data/corpus_prepared.pickled")
     wordvectors = current_relative_path("../../data/vecs.lc.over100freq.txt.gz")
-    contextsize = 5
+    contextsize = 120
     start_split_data_index = 0.0
     end_split_data_index = 0.8
 
 
-class TestConfig(object):
+class TrainTestConfig(object):
     # 词向量维度
-    num_steps = 128
+    num_steps = 120
     # batch的大小
     batch_size = 8
     entity_class_num = 18
@@ -213,11 +213,14 @@ def run_epoch(session, model, data):
     accuracys = 0.0
     costs = 0.0
     iters = 0
-    batch_inputs, batch_labels = data.next()
+    batch_inputs, batch_labels, batch_labels_index = data.next()
     while batch_inputs is not None:
-        accuracy, cost, _ = session.run([model.lr], feed_dict={model.train_inputs: batch_inputs,
-                                                               model.train_entity_labels: batch_labels})
-        batch_inputs, batch_labels = data.next()
+        lr, t = session.run([model.lr, model.t], feed_dict={model.train_inputs: batch_inputs,
+                                                               model.train_entity_labels: batch_labels,
+                                                            model.train_entity_labels_index: batch_labels_index})
+        print lr, t
+        raw_input(12)
+        batch_inputs, batch_labels, batch_labels_index = data.next()
     return accuracys / iters, costs / iters
 
 
@@ -229,7 +232,7 @@ def train():
             m = Model(is_training=True, config=TrainConfig)
         with tf.variable_scope("model", reuse=True, initializer=initializer):
             # 测试模型
-            mtest = Model(is_training=False, config=TestConfig)
+            mtest = Model(is_training=False, config=TrainTestConfig)
 
         session.run(tf.global_variables_initializer())
         for i in range(TrainConfig.max_max_epoch):
@@ -243,6 +246,10 @@ def train():
                 i + 1, train_accuracy, train_loss, lr)
 
             if i % 10 == 0:
-                test_data = generate_batch(TestConfig)
+                test_data = generate_batch(TrainTestConfig)
                 test_accuracy, test_loss = run_epoch(session, mtest, test_data)
                 print "Epoch: %d Test accuracy: %.3f, Test loss: %.3f" % (i, test_accuracy, test_loss)
+
+
+if __name__ == '__main__':
+    train()

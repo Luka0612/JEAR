@@ -17,7 +17,7 @@ def getEntityID(entityName):
 
 
 def getMatrixForContext(context, contextsize, wordindices):
-    matrix = np.zeros(shape=(contextsize))
+    matrix = np.zeros(shape=(contextsize), dtype=np.int32)
     i = 0
     while i < len(context):
         word = context[i]

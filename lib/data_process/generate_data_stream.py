@@ -35,6 +35,12 @@ def process_data_file(data_file):
            (test_id2sent, test_id2pos, test_id2ner, test_id2nerBILOU, test_id2arg2rel)
 
 
+def id_to_one_hot(id_index):
+    one_hot = np.zeros((18, ), dtype=np.int32)
+    one_hot[id_index] = 1
+    return one_hot
+
+
 def split_context(curId, id2ner, id2arg2rel):
     cur_ners = id2ner[curId].split()
     cur_rel = id2arg2rel[curId]
@@ -62,8 +68,9 @@ def split_context(curId, id2ner, id2arg2rel):
         entities_rels.reverse()
         d_entities_rels_index[ent1] = entities_rels
 
-    cur_ners_index = [getEntityID(i) for i in cur_ners]
-    return cur_ners_index, d_entities_rels_index
+    cur_ners_index_one_hot = np.array([id_to_one_hot(getEntityID(i)) for i in cur_ners])
+    cur_ners_index = np.array([getEntityID(i) for i in cur_ners])
+    return cur_ners_index_one_hot, cur_ners_index, d_entities_rels_index
 
 
 def process_samples(id2sent, id2ner, id2arg2rel, wordindices, conf):
@@ -71,16 +78,21 @@ def process_samples(id2sent, id2ner, id2arg2rel, wordindices, conf):
     for curId in id2sent:
         context = id2sent[curId]
         context_index = getMatrixForContext(context.split(), conf['contextsize'], wordindices)
-        cur_ners_index, d_entities_rels_index = split_context(curId, id2ner, id2arg2rel)
+        cur_ners_index_one_hot, cur_ners_index, d_entities_rels_index = split_context(curId, id2ner, id2arg2rel)
 
         if len(cur_ners_index) >= conf['contextsize']:
+            cur_ners_index_one_hot = np.array(cur_ners_index_one_hot)[:conf['contextsize']]
             cur_ners_index = np.array(cur_ners_index)[:conf['contextsize']]
         else:
-            matrix = np.zeros(shape=(conf['contextsize'],))
+            matrix = np.zeros(shape=(conf['contextsize'], ))
             matrix[:len(cur_ners_index)] = np.array(cur_ners_index)
             cur_ners_index = matrix
 
-        one_data = (context_index, cur_ners_index)
+            matrix = np.zeros(shape=(conf['contextsize'], 18, ))
+            matrix[:len(cur_ners_index_one_hot)] = np.array(cur_ners_index_one_hot)
+            cur_ners_index_one_hot = matrix
+
+        one_data = (context_index, cur_ners_index_one_hot, cur_ners_index)
         all_data.append(one_data)
     return all_data
 
@@ -102,8 +114,12 @@ def generate_batch(Tconf):
     all_data = all_data[
                int(len(all_data) * Tconf.start_split_data_index): int(len(all_data) * Tconf.end_split_data_index)]
     for i in range(int(len(all_data) / Tconf.batch_size)):
-        yield all_data[i: i + Tconf.batch_size]
-    yield None
+        batch = all_data[i: i + Tconf.batch_size]
+        batch_inputs = np.array([i[0] for i in batch])
+        batch_labels = np.array([i[1] for i in batch])
+        batch_labels_index = np.array([i[2] for i in batch])
+        yield batch_inputs, batch_labels, batch_labels_index
+    yield None, None, None
 
 
 def main():
@@ -112,4 +128,32 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    class Conf:
+        # 词向量维度
+        num_steps = 128
+        # batch的大小
+        batch_size = 1
+        entity_class_num = 18
+        vocabulary_size = 418129
+        embedding_size = 128
+        keep_prob = 0.9
+        encode_hidden_size = 128
+        encode_num_layers = 4
+        decode_embedding_dim = 128
+        decode_hidden_size = 128
+        decode_num_layers = 4
+        max_max_epoch = 1000
+        # 学习率
+        lr = 0.8
+        # 学习率衰减
+        lr_decay = 0.8
+        max_epoch = 5
+        datafile = current_relative_path("../../data/corpus_prepared.pickled")
+        wordvectors = current_relative_path("../../data/vecs.lc.over100freq.txt.gz")
+        contextsize = 120
+        start_split_data_index = 0.0
+        end_split_data_index = 0.8
+
+
+    a = generate_batch(Conf)
+    print a.next()[0]
