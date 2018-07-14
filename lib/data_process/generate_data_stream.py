@@ -10,6 +10,9 @@ current_relative_path = lambda x: os.path.abspath(os.path.join(os.path.dirname(o
 sys.path.append(current_relative_path(".."))
 from utils.utils import getRelID, getEntityID, getMatrixForContext, readIndices
 
+rel_entity_num = 31
+entity_rel_num = 30
+
 
 def load_yaml(file_name):
     with open(file_name, 'r') as f:
@@ -36,7 +39,7 @@ def process_data_file(data_file):
 
 
 def id_to_one_hot(id_index):
-    one_hot = np.zeros((18, ), dtype=np.int32)
+    one_hot = np.zeros((18,), dtype=np.int32)
     one_hot[id_index] = 1
     return one_hot
 
@@ -44,6 +47,7 @@ def id_to_one_hot(id_index):
 def split_context(curId, id2ner, id2arg2rel):
     cur_ners = id2ner[curId].split()
     cur_rel = id2arg2rel[curId]
+    valid_entity_rel_num = []
 
     entities = []
     i = 0
@@ -55,22 +59,54 @@ def split_context(curId, id2ner, id2arg2rel):
             entities.append((i, j - 1))
         i = j
 
-    d_entities_rels_index = {}
+    rels_entities_index = []
+    np_entities_rels_all = []
+    np_entities_ner_rels_all = []
     for e1Ind in range(len(entities) - 1, -1, -1):
+        if e1Ind == 0:
+            continue
         entities_rels = []
+        entities_ner_rels = []
         ent1 = entities[e1Ind]
         for e2Ind in range(e1Ind - 1, -1, -1):
             ent2 = entities[e2Ind]
-            if (ent2[1], ent1[1]) in cur_rel:
-                entities_rels.append(getRelID(cur_rel[(ent2[1], ent1[1])]))
-            else:
-                entities_rels.append(0)
+            for ent2_index in range(ent2[1], ent2[0] - 1, -1):
+                if (ent2[1], ent1[1]) in cur_rel:
+                    entities_rels.append(getRelID(cur_rel[(ent2[1], ent1[1])]))
+                else:
+                    entities_rels.append(1)
+                entities_ner_rels.append(ent2_index)
         entities_rels.reverse()
-        d_entities_rels_index[ent1] = entities_rels
+        entities_ner_rels.reverse()
+
+        np_entities_rels = np.zeros(shape=(entity_rel_num,), dtype=np.int32)
+        np_entities_rels[:len(entities_rels)] = np.array(entities_rels, dtype=np.int32)
+
+        np_entities_ner_rels = np.ones(shape=(entity_rel_num,), dtype=np.int32) * 120
+        np_entities_ner_rels[:len(entities_ner_rels)] = np.array(entities_ner_rels, dtype=np.int32)
+
+        for ent1_index in range(ent1[1], ent1[0] - 1, -1):
+            valid_entity_rel_num.append(len(entities_rels))
+            rels_entities_index.append(ent1_index)
+            np_entities_rels_all.append(np_entities_rels)
+            np_entities_ner_rels_all.append(np_entities_ner_rels)
 
     cur_ners_index_one_hot = np.array([id_to_one_hot(getEntityID(i)) for i in cur_ners])
     cur_ners_index = np.array([getEntityID(i) for i in cur_ners])
-    return cur_ners_index_one_hot, cur_ners_index, d_entities_rels_index
+
+    for additional in range(len(rels_entities_index), rel_entity_num):
+        valid_entity_rel_num.append(0)
+        rels_entities_index.append(120)
+        np_entities_ner_rels = np.ones(shape=(entity_rel_num,), dtype=np.int32) * 120
+        np_entities_ner_rels_all.append(np_entities_ner_rels)
+
+        np_entities_rels = np.zeros(shape=(entity_rel_num,), dtype=np.int32)
+        np_entities_rels_all.append(np_entities_rels)
+
+    return cur_ners_index_one_hot, cur_ners_index, (
+        np.array(rels_entities_index, dtype=np.int32), np.array(valid_entity_rel_num, dtype=np.int32),
+        np.array(np_entities_rels_all, dtype=np.int32),
+        np.array(np_entities_ner_rels_all, dtype=np.int32))
 
 
 def process_samples(id2sent, id2ner, id2arg2rel, wordindices, conf):
@@ -78,22 +114,23 @@ def process_samples(id2sent, id2ner, id2arg2rel, wordindices, conf):
     for curId in id2sent:
         context = id2sent[curId]
         context_index = getMatrixForContext(context.split(), conf['contextsize'], wordindices)
-        cur_ners_index_one_hot, cur_ners_index, d_entities_rels_index = split_context(curId, id2ner, id2arg2rel)
+        cur_ners_index_one_hot, cur_ners_index, entities_rels_index_tuple = split_context(curId, id2ner, id2arg2rel)
 
         if len(cur_ners_index) >= conf['contextsize']:
             cur_ners_index_one_hot = np.array(cur_ners_index_one_hot)[:conf['contextsize']]
             cur_ners_index = np.array(cur_ners_index)[:conf['contextsize']]
         else:
-            matrix = np.zeros(shape=(conf['contextsize'], ))
+            matrix = np.zeros(shape=(conf['contextsize'],))
             matrix[:len(cur_ners_index)] = np.array(cur_ners_index)
             cur_ners_index = matrix
 
-            matrix = np.zeros(shape=(conf['contextsize'], 18, ))
+            matrix = np.zeros(shape=(conf['contextsize'], 18,))
             matrix[:len(cur_ners_index_one_hot)] = np.array(cur_ners_index_one_hot)
             cur_ners_index_one_hot = matrix
 
-        one_data = (context_index, cur_ners_index_one_hot, cur_ners_index)
+        one_data = (context_index, cur_ners_index_one_hot, cur_ners_index, entities_rels_index_tuple)
         all_data.append(one_data)
+
     return all_data
 
 
@@ -118,8 +155,12 @@ def generate_batch(Tconf):
         batch_inputs = np.array([i[0] for i in batch])
         batch_labels = np.array([i[1] for i in batch])
         batch_labels_index = np.array([i[2] for i in batch])
-        yield batch_inputs, batch_labels, batch_labels_index
-    yield None, None, None
+        batch_rel_entity_index = np.array([i[3][0] for i in batch])
+        batch_rel_entity_index_match = np.array([i[3][3] for i in batch])
+        train_rel = np.array([i[3][2] for i in batch])
+        rel_masks = np.array([i[3][1] for i in batch])
+        yield batch_inputs, batch_labels, batch_labels_index, batch_rel_entity_index, batch_rel_entity_index_match, train_rel, rel_masks
+    yield None, None, None, None, None, None, None
 
 
 def main():
@@ -156,4 +197,4 @@ if __name__ == '__main__':
 
 
     a = generate_batch(Conf)
-    print a.next()[0]
+    print a.next()[4].shape
