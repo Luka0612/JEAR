@@ -28,3 +28,6 @@ Trees，对Global Normalization of Convolutional Neural Networks for Joint Entit
 ## 数据集搭建
 由于ace05数据集需要购买而且还蛮贵的，所以采用“entity and relation recognition”
 (ERR) dataset from [Global Normalization of Convolutional Neural Networks for Joint Entity and Relation Classification](http://cistern.cis.lmu.de)
+
+## 训练模型
+python lib/model/model.py
